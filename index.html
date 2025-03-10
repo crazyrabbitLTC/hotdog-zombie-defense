@@ -255,10 +255,15 @@
 
         // Set up Three.js scene
         function setupScene() {
-            // Create scene
+            // Create scene with improved lighting and atmosphere
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x87ceeb); // Sky blue
-            scene.fog = new THREE.Fog(0x87ceeb, 10, 100);
+            
+            // Sky gradient with soft blue color
+            const skyColor = new THREE.Color(0x6cb7f5);
+            scene.background = skyColor;
+            
+            // Add distance fog for atmospheric perspective 
+            scene.fog = new THREE.FogExp2(skyColor, 0.01);
             
             // Create camera
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -270,98 +275,539 @@
             renderer.shadowMap.enabled = true;
             document.body.appendChild(renderer.domElement);
             
-            // Add lighting
-            const ambientLight = new THREE.AmbientLight(0x404040);
+            // Enhanced realistic lighting system
+            
+            // Ambient light for base illumination (slightly warm)
+            const ambientLight = new THREE.AmbientLight(0x505050);
             scene.add(ambientLight);
             
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            directionalLight.position.set(1, 1, 0.5).normalize();
-            directionalLight.castShadow = true;
-            scene.add(directionalLight);
+            // Main sun directional light (warm sunlight)
+            const sunLight = new THREE.DirectionalLight(0xffffaa, 1.0);
+            sunLight.position.set(10, 30, -10);
+            sunLight.castShadow = true;
             
-            // Create floor
-            const floorGeometry = new THREE.PlaneGeometry(100, 100);
+            // Improve shadow quality and range
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            sunLight.shadow.camera.near = 0.5;
+            sunLight.shadow.camera.far = 100;
+            sunLight.shadow.camera.left = -30;
+            sunLight.shadow.camera.right = 30;
+            sunLight.shadow.camera.top = 30;
+            sunLight.shadow.camera.bottom = -30;
+            sunLight.shadow.bias = -0.0001;
+            
+            scene.add(sunLight);
+            
+            // Add secondary fill light (cooler tone from opposite side)
+            const fillLight = new THREE.DirectionalLight(0xaaccff, 0.3);
+            fillLight.position.set(-5, 15, 10);
+            scene.add(fillLight);
+            
+            // Add a subtle hemisphere light for realistic sky-ground reflection
+            const hemiLight = new THREE.HemisphereLight(0x6688cc, 0x885500, 0.25);
+            scene.add(hemiLight);
+            
+            // Create realistic ground with texture variations
+            
+            // Main grass terrain - larger area with subdivisions for better shadows
+            const floorGeometry = new THREE.PlaneGeometry(200, 200, 100, 100);
+            
+            // Grass material with texture details
             const floorMaterial = new THREE.MeshStandardMaterial({ 
-                color: 0x336633,
-                roughness: 0.8,
-                metalness: 0.2
+                color: 0x3a6e3a,
+                roughness: 0.9,
+                metalness: 0.0,
+                flatShading: false
             });
+            
+            // Create and position floor
             const floor = new THREE.Mesh(floorGeometry, floorMaterial);
             floor.rotation.x = -Math.PI / 2;
             floor.receiveShadow = true;
             scene.add(floor);
             
+            // Add random terrain bumps for realism
+            const vertices = floor.geometry.attributes.position.array;
+            for (let i = 0; i < vertices.length; i += 3) {
+                // Skip the center area to keep it flat for gameplay
+                const x = vertices[i];
+                const z = vertices[i+2];
+                const distFromCenter = Math.sqrt(x*x + z*z);
+                
+                if (distFromCenter > 15) {
+                    // Add more bumps as we get further from center
+                    const bumpHeight = (0.2 + Math.random() * 0.3) * (distFromCenter/50);
+                    vertices[i+1] = bumpHeight * (Math.sin(x/10) * Math.cos(z/10));
+                }
+            }
+            floor.geometry.attributes.position.needsUpdate = true;
+            floor.geometry.computeVertexNormals();
+            
+            // Add a concrete patch under the hotdog cart
+            const concreteGeometry = new THREE.CircleGeometry(5, 32);
+            const concreteMaterial = new THREE.MeshStandardMaterial({
+                color: 0xaaaaaa,
+                roughness: 0.9,
+                metalness: 0.1
+            });
+            const concrete = new THREE.Mesh(concreteGeometry, concreteMaterial);
+            concrete.rotation.x = -Math.PI / 2;
+            concrete.position.set(0, 0.02, -3); // Slightly above ground to prevent z-fighting
+            concrete.receiveShadow = true;
+            scene.add(concrete);
+            
             // Create hotdog cart
             createHotdogCart();
             
-            // Add some trees for decoration
-            for (let i = 0; i < 20; i++) {
-                const x = Math.random() * 80 - 40;
-                const z = Math.random() * 80 - 40;
-                if (Math.abs(x) > 5 || Math.abs(z) > 5) { // Don't place trees too close to player
-                    createTree(x, 0, z);
+            // Create a more varied and realistic environment with multiple element types
+            
+            // Create scattered tree clusters for natural look
+            const numTrees = 60; // More trees for a denser forest feel
+            
+            // Create tree clusters rather than random distribution
+            for (let c = 0; c < 6; c++) {
+                // Create a cluster center point
+                const clusterX = Math.random() * 140 - 70;
+                const clusterZ = Math.random() * 140 - 70;
+                
+                // Ensure cluster isn't too close to the player start area
+                if (Math.sqrt(clusterX*clusterX + clusterZ*clusterZ) < 15) continue;
+                
+                // Add trees to this cluster
+                const treesInCluster = 5 + Math.floor(Math.random() * 5);
+                for (let i = 0; i < treesInCluster; i++) {
+                    // Position trees around cluster point
+                    const distance = Math.random() * 10;
+                    const angle = Math.random() * Math.PI * 2;
+                    const x = clusterX + Math.cos(angle) * distance;
+                    const z = clusterZ + Math.sin(angle) * distance;
+                    
+                    // Make sure tree isn't too close to player area
+                    if (Math.sqrt(x*x + z*z) > 12) {
+                        createTree(x, 0, z);
+                    }
                 }
+            }
+            
+            // Add random individual trees between clusters
+            for (let i = 0; i < 15; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const distance = 20 + Math.random() * 60;
+                const x = Math.sin(angle) * distance;
+                const z = Math.cos(angle) * distance;
+                createTree(x, 0, z);
+            }
+            
+            // Add some rocks around the environment
+            for (let i = 0; i < 25; i++) {
+                const x = Math.random() * 120 - 60;
+                const z = Math.random() * 120 - 60;
+                
+                // Keep rocks away from player start area
+                if (Math.sqrt(x*x + z*z) < 10) continue;
+                
+                // Create a rock group
+                const rock = new THREE.Group();
+                rock.position.set(x, 0, z);
+                
+                // Random scale and rotation
+                const scale = 0.4 + Math.random() * 1.0;
+                rock.scale.set(scale, scale * (0.7 + Math.random() * 0.6), scale);
+                rock.rotation.y = Math.random() * Math.PI * 2;
+                
+                // Create rock geometry with random shape
+                const rockGeometry = new THREE.DodecahedronGeometry(1, 0);
+                
+                // Distort vertices for natural look
+                const positionAttribute = rockGeometry.attributes.position;
+                const vertex = new THREE.Vector3();
+                
+                for (let i = 0; i < positionAttribute.count; i++) {
+                    vertex.fromBufferAttribute(positionAttribute, i);
+                    vertex.x += (Math.random() - 0.5) * 0.2;
+                    vertex.y += (Math.random() - 0.5) * 0.2;
+                    vertex.z += (Math.random() - 0.5) * 0.2;
+                    positionAttribute.setXYZ(i, vertex.x, vertex.y, vertex.z);
+                }
+                
+                rockGeometry.computeVertexNormals();
+                
+                // Rock material varies from light to dark grey
+                const rockColor = new THREE.Color(0x777777).lerp(
+                    new THREE.Color(0x444444),
+                    Math.random()
+                );
+                
+                const rockMaterial = new THREE.MeshStandardMaterial({
+                    color: rockColor,
+                    roughness: 0.9,
+                    metalness: 0.1,
+                    flatShading: true
+                });
+                
+                const rockMesh = new THREE.Mesh(rockGeometry, rockMaterial);
+                rockMesh.castShadow = true;
+                rockMesh.receiveShadow = true;
+                
+                // Position rocks half-buried in ground
+                rockMesh.position.y = rockMesh.scale.y * 0.5 - 0.2 - Math.random() * 0.3;
+                
+                rock.add(rockMesh);
+                scene.add(rock);
+            }
+            
+            // Add scattered grass tufts for ground detail
+            for (let i = 0; i < 200; i++) {
+                const x = Math.random() * 100 - 50;
+                const z = Math.random() * 100 - 50;
+                
+                // Keep away from player center
+                if (Math.sqrt(x*x + z*z) < 5) continue;
+                
+                // Grasstuft geometry - simple crossed planes
+                const grassGeometry = new THREE.PlaneGeometry(0.7, 0.7);
+                const grassMaterial = new THREE.MeshStandardMaterial({ 
+                    color: new THREE.Color(0x559933).lerp(
+                        new THREE.Color(0x88bb44), 
+                        Math.random()
+                    ),
+                    roughness: 1.0,
+                    metalness: 0.0,
+                    side: THREE.DoubleSide,
+                    alphaTest: 0.5
+                });
+                
+                const grassTuft = new THREE.Group();
+                
+                // Create 2-3 blades of grass as crossed planes
+                const blades = 2 + Math.floor(Math.random());
+                for (let j = 0; j < blades; j++) {
+                    const blade = new THREE.Mesh(grassGeometry, grassMaterial);
+                    blade.rotation.y = j * Math.PI / blades;
+                    blade.position.y = 0.2;
+                    grassTuft.add(blade);
+                }
+                
+                grassTuft.position.set(x, 0, z);
+                grassTuft.scale.set(
+                    0.8 + Math.random() * 0.5,
+                    0.7 + Math.random() * 0.7,
+                    0.8 + Math.random() * 0.5
+                );
+                
+                scene.add(grassTuft);
             }
         }
 
-        // Create hotdog cart
+        // Create detailed hotdog cart with realistic features
         function createHotdogCart() {
             const cart = new THREE.Group();
             
-            // Cart body
+            // Main cart body - more detailed with metal trim
             const cartBody = new THREE.Mesh(
                 new THREE.BoxGeometry(2, 1, 3),
-                new THREE.MeshStandardMaterial({ color: 0xdd3333 })
+                new THREE.MeshStandardMaterial({ 
+                    color: 0xe51a1a, // Bright red
+                    roughness: 0.7,
+                    metalness: 0.2
+                })
             );
             cartBody.position.y = 0.5;
             cartBody.castShadow = true;
             cartBody.receiveShadow = true;
             cart.add(cartBody);
             
-            // Cart umbrella
-            const umbrella = new THREE.Mesh(
-                new THREE.ConeGeometry(2, 1, 8, 1, true),
-                new THREE.MeshStandardMaterial({ 
-                    color: 0xffdd00,
-                    side: THREE.DoubleSide
+            // Add metal trim around edges
+            const trimMaterial = new THREE.MeshStandardMaterial({
+                color: 0xcccccc,
+                roughness: 0.3,
+                metalness: 0.8
+            });
+            
+            // Top trim
+            const topTrim = new THREE.Mesh(
+                new THREE.BoxGeometry(2.1, 0.05, 3.1),
+                trimMaterial
+            );
+            topTrim.position.y = 1.02;
+            cart.add(topTrim);
+            
+            // Bottom trim
+            const bottomTrim = new THREE.Mesh(
+                new THREE.BoxGeometry(2.1, 0.05, 3.1),
+                trimMaterial
+            );
+            bottomTrim.position.y = 0.02;
+            cart.add(bottomTrim);
+            
+            // Counter top
+            const counterTop = new THREE.Mesh(
+                new THREE.BoxGeometry(2.1, 0.1, 3.1),
+                new THREE.MeshStandardMaterial({
+                    color: 0xdddddd,
+                    roughness: 0.4,
+                    metalness: 0.3
                 })
             );
-            umbrella.position.y = 2;
-            umbrella.castShadow = true;
-            cart.add(umbrella);
+            counterTop.position.y = 1.05;
+            cart.add(counterTop);
             
-            // Cart sign
+            // Add wheels
+            const wheelMaterial = new THREE.MeshStandardMaterial({
+                color: 0x222222,
+                roughness: 0.7,
+                metalness: 0.3
+            });
+            
+            // Add 4 wheels
+            for (let x = -1; x <= 1; x += 2) {
+                for (let z = -1; z <= 1; z += 2) {
+                    const wheel = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.15, 0.15, 0.1, 16),
+                        wheelMaterial
+                    );
+                    wheel.rotation.z = Math.PI / 2;
+                    wheel.position.set(x * 0.9, 0.15, z * 1.4);
+                    cart.add(wheel);
+                }
+            }
+            
+            // Cart umbrella with stripes
+            const umbrellaGroup = new THREE.Group();
+            
+            // Umbrella pole
+            const pole = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.05, 0.05, 2, 8),
+                new THREE.MeshStandardMaterial({ 
+                    color: 0xaaaaaa,
+                    roughness: 0.4,
+                    metalness: 0.7
+                })
+            );
+            pole.position.y = 1;
+            umbrellaGroup.add(pole);
+            
+            // Umbrella canopy with alternating colors
+            const segments = 8;
+            const umbrellaRadius = 2;
+            const umbrellaHeight = 1;
+            
+            for (let i = 0; i < segments; i++) {
+                const startAngle = (i / segments) * Math.PI * 2;
+                const endAngle = ((i + 1) / segments) * Math.PI * 2;
+                
+                const umbrellaGeometry = new THREE.BufferGeometry();
+                
+                // Create a segment of the umbrella
+                const vertices = new Float32Array([
+                    0, 2, 0, // Top center
+                    umbrellaRadius * Math.cos(startAngle), 2 - umbrellaHeight, umbrellaRadius * Math.sin(startAngle), // Bottom first point
+                    umbrellaRadius * Math.cos(endAngle), 2 - umbrellaHeight, umbrellaRadius * Math.sin(endAngle) // Bottom second point
+                ]);
+                
+                // Set face indices
+                const indices = new Uint16Array([0, 1, 2]);
+                
+                // Set vertex normals
+                const normal = new THREE.Vector3(0, 1, 0);
+                const normals = new Float32Array([
+                    normal.x, normal.y, normal.z,
+                    normal.x, normal.y, normal.z,
+                    normal.x, normal.y, normal.z
+                ]);
+                
+                umbrellaGeometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+                umbrellaGeometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+                umbrellaGeometry.setIndex(new THREE.BufferAttribute(indices, 1));
+                
+                // Alternate red and white stripes
+                const color = i % 2 === 0 ? 0xff5555 : 0xffffff;
+                
+                const umbrellaMaterial = new THREE.MeshStandardMaterial({
+                    color: color,
+                    side: THREE.DoubleSide,
+                    roughness: 0.9,
+                    metalness: 0.0
+                });
+                
+                const umbrellaPiece = new THREE.Mesh(umbrellaGeometry, umbrellaMaterial);
+                umbrellaPiece.castShadow = true;
+                umbrellaGroup.add(umbrellaPiece);
+            }
+            
+            cart.add(umbrellaGroup);
+            
+            // Add hotdog display case (glass front)
+            const displayCase = new THREE.Mesh(
+                new THREE.BoxGeometry(1.8, 0.5, 1.2),
+                new THREE.MeshPhysicalMaterial({
+                    color: 0xffffff,
+                    roughness: 0.1,
+                    metalness: 0.1,
+                    transmission: 0.9, // For glass effect
+                    transparent: true,
+                    opacity: 0.3
+                })
+            );
+            displayCase.position.set(0, 1.3, 0.7);
+            cart.add(displayCase);
+            
+            // Add hotdogs in the display
+            for (let i = 0; i < 5; i++) {
+                // Bun
+                const bun = new THREE.Mesh(
+                    new THREE.CylinderGeometry(0.08, 0.08, 0.25, 8),
+                    new THREE.MeshStandardMaterial({ color: 0xeedd99 })
+                );
+                bun.rotation.z = Math.PI / 2;
+                bun.position.set(-0.6 + i * 0.3, 1.25, 0.7);
+                cart.add(bun);
+                
+                // Sausage
+                const sausage = new THREE.Mesh(
+                    new THREE.CylinderGeometry(0.04, 0.04, 0.3, 8),
+                    new THREE.MeshStandardMaterial({ color: 0xcc6633 })
+                );
+                sausage.rotation.z = Math.PI / 2;
+                sausage.position.set(-0.6 + i * 0.3, 1.27, 0.7);
+                cart.add(sausage);
+            }
+            
+            // Cart sign with "HOT DOGS" text
             const sign = new THREE.Mesh(
-                new THREE.BoxGeometry(0.8, 0.5, 0.1),
+                new THREE.BoxGeometry(1.5, 0.6, 0.1),
                 new THREE.MeshStandardMaterial({ color: 0xffcc33 })
             );
-            sign.position.set(0, 1.5, -0.2);
+            sign.position.set(0, 1.8, -1.3);
             sign.castShadow = true;
             cart.add(sign);
             
+            // Add propane tank
+            const propaneTank = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.25, 0.25, 0.8, 16),
+                new THREE.MeshStandardMaterial({ 
+                    color: 0x3366aa,
+                    roughness: 0.5,
+                    metalness: 0.5
+                })
+            );
+            propaneTank.position.set(0.7, 0.4, -1.3);
+            cart.add(propaneTank);
+            
+            // Add condiment containers
+            const condiments = ['0xff0000', '0xffff00', '0x009900'];
+            
+            for (let i = 0; i < 3; i++) {
+                const container = new THREE.Mesh(
+                    new THREE.CylinderGeometry(0.1, 0.08, 0.25, 12),
+                    new THREE.MeshStandardMaterial({ 
+                        color: parseInt(condiments[i]),
+                        roughness: 0.2,
+                        metalness: 0.8
+                    })
+                );
+                container.position.set(-0.7 + i * 0.5, 1.25, -0.5);
+                cart.add(container);
+                
+                // Add nozzle
+                const nozzle = new THREE.Mesh(
+                    new THREE.CylinderGeometry(0.03, 0.03, 0.1, 8),
+                    new THREE.MeshStandardMaterial({ color: 0xdddddd })
+                );
+                nozzle.position.set(-0.7 + i * 0.5, 1.4, -0.5);
+                cart.add(nozzle);
+            }
+            
+            // Add napkin holder
+            const napkinHolder = new THREE.Mesh(
+                new THREE.BoxGeometry(0.3, 0.2, 0.3),
+                new THREE.MeshStandardMaterial({ color: 0xdddddd })
+            );
+            napkinHolder.position.set(-0.7, 1.25, 0);
+            cart.add(napkinHolder);
+            
+            // Set cart position
             cart.position.z = -3;
             scene.add(cart);
+            
+            return cart;
         }
 
-        // Create a tree
+        // Create a more realistic tree with variations
         function createTree(x, y, z) {
-            const trunk = new THREE.Mesh(
-                new THREE.CylinderGeometry(0.2, 0.4, 2, 8),
-                new THREE.MeshStandardMaterial({ color: 0x8B4513 })
+            // Create a tree group to hold all parts
+            const treeGroup = new THREE.Group();
+            treeGroup.position.set(x, y, z);
+            
+            // Add random rotation and slight scale variation for natural look
+            treeGroup.rotation.y = Math.random() * Math.PI * 2;
+            const scale = 0.8 + Math.random() * 0.4;
+            treeGroup.scale.set(scale, scale, scale);
+            
+            // Create realistic trunk with texture gradient
+            const trunkHeight = 2 + Math.random() * 1;
+            const trunkGeometry = new THREE.CylinderGeometry(
+                0.2, // top radius
+                0.4 + Math.random() * 0.2, // bottom radius (varied)
+                trunkHeight, 
+                8 // segments
             );
-            trunk.position.set(x, y + 1, z);
+            
+            // Brown trunk with texture
+            const trunkMaterial = new THREE.MeshStandardMaterial({ 
+                color: new THREE.Color(0x8B4513).lerp(new THREE.Color(0x5d341b), Math.random() * 0.5),
+                roughness: 0.9,
+                metalness: 0.1,
+                flatShading: true
+            });
+            
+            const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+            trunk.position.y = trunkHeight / 2;
             trunk.castShadow = true;
             trunk.receiveShadow = true;
-            scene.add(trunk);
+            treeGroup.add(trunk);
             
-            const leaves = new THREE.Mesh(
-                new THREE.SphereGeometry(1, 8, 8),
-                new THREE.MeshStandardMaterial({ color: 0x228B22 })
+            // Create 2-3 foliage clusters for more realistic trees
+            const foliageClusters = 2 + Math.floor(Math.random() * 2);
+            
+            // Randomize foliage color slightly for variation
+            const foliageColor = new THREE.Color(0x228B22).lerp(
+                new THREE.Color(0x345e34), 
+                Math.random() * 0.5
             );
-            leaves.position.set(x, y + 2.5, z);
-            leaves.castShadow = true;
-            leaves.receiveShadow = true;
-            scene.add(leaves);
+            
+            for (let i = 0; i < foliageClusters; i++) {
+                // Create slightly different sized foliage clusters
+                const foliageSize = 0.8 + Math.random() * 0.7;
+                const foliageGeometry = new THREE.SphereGeometry(
+                    foliageSize, 
+                    8, 
+                    7
+                );
+                
+                // Create material with some randomness
+                const foliageMaterial = new THREE.MeshStandardMaterial({ 
+                    color: foliageColor,
+                    roughness: 0.9,
+                    metalness: 0.0,
+                    flatShading: true,
+                });
+                
+                const foliage = new THREE.Mesh(foliageGeometry, foliageMaterial);
+                
+                // Position foliage at top of trunk with some randomness
+                foliage.position.y = trunkHeight + i * 0.5 + Math.random() * 0.2;
+                foliage.position.x = (Math.random() - 0.5) * 0.4;
+                foliage.position.z = (Math.random() - 0.5) * 0.4;
+                
+                foliage.castShadow = true;
+                foliage.receiveShadow = true;
+                treeGroup.add(foliage);
+            }
+            
+            scene.add(treeGroup);
+            return treeGroup;
         }
         
         // Create blood splatter effect when zombie is hit
