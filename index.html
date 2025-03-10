@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hotdog Zombie Defense</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            font-family: Arial, sans-serif;
+        }
+        canvas { 
+            display: block; 
+            width: 100%; 
+            height: 100%;
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+            font-size: 24px;
+            pointer-events: none;
+        }
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 20px;
+            height: 20px;
+            margin-left: -10px;
+            margin-top: -10px;
+            color: white;
+            font-size: 30px;
+            text-align: center;
+            line-height: 20px;
+            pointer-events: none;
+            text-shadow: 0px 0px 3px black;
+        }
+        #startScreen {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        h1 {
+            color: #ff5722;
+            font-size: 48px;
+            margin-bottom: 30px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+        p {
+            color: white;
+            font-size: 20px;
+            max-width: 600px;
+            text-align: center;
+            margin-bottom: 40px;
+            line-height: 1.5;
+        }
+        button {
+            background: #ff5722;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.2s, background 0.2s;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+        button:hover {
+            background: #ff7043;
+            transform: scale(1.05);
+        }
+        button:active {
+            transform: scale(0.98);
+        }
+    </style>
+</head>
+<body>
+    <div id="startScreen">
+        <h1>HOTDOG ZOMBIE DEFENSE</h1>
+        <p>Defend your hotdog cart from approaching zombies! Use WASD to move, Mouse to look around, and Click or Space to shoot hotdogs!</p>
+        <button onclick="startGame()">START GAME</button>
+    </div>
+    
+    <div id="ui">
+        <div id="score">Score: 0</div>
+        <div id="ammo">Hotdogs: 10</div>
+    </div>
+    <div id="crosshair">+</div>
+    
+    <!-- Add a hotdog hand that appears when throwing -->
+    <div id="throwingHand" style="
+        position: absolute;
+        bottom: 0;
+        right: 0;
+        width: 180px;
+        height: 200px;
+        background-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cGF0aCBkPSJNMzAgNzBjLTUgMC04LTMtOS01LTEtMy0yLTExIDEtMTUgMi0zIDYtMyA4LTIgMS0yIDMtNSA4LTYgNC0xIDctMSAxMCAyLTEtMy0xLTYgMS05IDItMyA2LTQgMTEtMiA0IDIgNiA1IDYgOSAwLTMgMS02IDQtOCAzLTIgNi0yIDktMSAzIDEgNiA0IDcgOCAwLTYgMy04IDctOSA0LTIgOC0xIDExIDNzMyA3IDMgMTBjMCAzLTEgNi0xIDZzMTAgNyAxMiAxMWMxIDUgMCAxMC0zIDEzLTMgNC03IDUtMTAgNGgtMS41Yy0yLTEtOS01LTEyLTguNXMtNi04LjUtNi04LjUiIGZpbGw9IiNkZGI4OTkiLz48cGF0aCBkPSJNMzUgNjhjLTEgMC0zLTEtNC0yLTItMS0zLTQtMy03IDAtMiAxLTUgNS01IDUtMSA5IDIgMTAgNiAwIDMtMiA3LTggOHoiIGZpbGw9IiNjYzY2MzMiLz48L3N2Zz4=');
+        background-repeat: no-repeat;
+        background-size: contain;
+        opacity: 0;
+        transition: opacity 0.2s;
+        pointer-events: none;
+        transform: translate(50px, 50px);
+        z-index: 5;
+    "></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Game variables
+        let scene, camera, renderer;
+        let isGameRunning = false;
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        let score = 0;
+        let hotdogs = [];
+        let zombies = [];
+        let cooldown = 0;
+        
+        // Audio variables
+        let audioContext;
+        let sounds = {};
+        
+        // Initialize audio
+        function initAudio() {
+            // Create audio context
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            
+            // Create sounds
+            createSound('throw', [220, 330, 440], 0.5, 'sine', 0.05, 0.1, 0.2);
+            createSound('hit', [110, 55, 22], 0.7, 'sawtooth', 0, 0.05, 0.3);
+            createSound('zombieGrunt', [60, 40, 80, 90], 0.5, 'square', 0.1, 0.3, 0.7);
+            createSound('zombieDeath', [80, 60, 40, 20], 0.6, 'sawtooth', 0.1, 0.5, 1.2);
+            createSound('gameOver', [220, 196, 165, 147, 131, 110], 0.8, 'sine', 0.1, 1.2, 1.5);
+            createSound('walk', [100, 90], 0.2, 'triangle', 0, 0.05, 0.1);
+            
+            // Create background music loop
+            createMusic();
+        }
+        
+        // Create a basic synthesized sound
+        function createSound(name, frequencies, volume, type, attack, decay, duration) {
+            sounds[name] = {
+                frequencies: frequencies,
+                volume: volume,
+                type: type,
+                attack: attack,
+                decay: decay,
+                duration: duration
+            };
+        }
+        
+        // Play a sound
+        function playSound(name, pitch = 1) {
+            if (!audioContext) return;
+            
+            const sound = sounds[name];
+            if (!sound) return;
+            
+            // Create oscillators for each frequency
+            sound.frequencies.forEach((freq, i) => {
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.type = sound.type;
+                oscillator.frequency.value = freq * pitch;
+                
+                // Set envelope
+                gainNode.gain.value = 0;
+                gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime);
+                gainNode.gain.linearRampToValueAtTime(
+                    sound.volume, 
+                    audioContext.currentTime + sound.attack
+                );
+                gainNode.gain.linearRampToValueAtTime(
+                    0, 
+                    audioContext.currentTime + sound.duration
+                );
+                
+                // Connect and start
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                oscillator.start();
+                oscillator.stop(audioContext.currentTime + sound.duration);
+            });
+        }
+        
+        // Create background music
+        function createMusic() {
+            if (!audioContext) return;
+            
+            // Simple background rhythm
+            const playPattern = () => {
+                const notes = [110, 147, 165, 196];
+                const duration = 0.15;
+                
+                notes.forEach((note, i) => {
+                    setTimeout(() => {
+                        const osc = audioContext.createOscillator();
+                        const gain = audioContext.createGain();
+                        
+                        osc.frequency.value = note;
+                        osc.type = 'sine';
+                        
+                        gain.gain.value = 0.1;
+                        gain.gain.linearRampToValueAtTime(0, audioContext.currentTime + duration);
+                        
+                        osc.connect(gain);
+                        gain.connect(audioContext.destination);
+                        
+                        osc.start();
+                        osc.stop(audioContext.currentTime + duration);
+                    }, i * 400);
+                });
+                
+                // Loop the pattern every 4 seconds if game is running
+                if (isGameRunning) {
+                    setTimeout(playPattern, 4000);
+                }
+            };
+            
+            // Start the music pattern
+            playPattern();
+        }
+
+        // Start the game when button is clicked
+        function startGame() {
+            document.getElementById('startScreen').style.display = 'none';
+            isGameRunning = true;
+            
+            // Initialize audio system
+            initAudio();
+            
+            // Set up Three.js scene
+            setupScene();
+            
+            // Add event listeners
+            setupControls();
+            
+            // Start game loop
+            animate();
+            
+            // Spawn zombies periodically
+            setInterval(spawnZombie, 2000);
+        }
+
+        // Set up Three.js scene
+        function setupScene() {
+            // Create scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87ceeb); // Sky blue
+            scene.fog = new THREE.Fog(0x87ceeb, 10, 100);
+            
+            // Create camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.y = 1.6; // Eye height
+            
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+            
+            // Add lighting
+            const ambientLight = new THREE.AmbientLight(0x404040);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(1, 1, 0.5).normalize();
+            directionalLight.castShadow = true;
+            scene.add(directionalLight);
+            
+            // Create floor
+            const floorGeometry = new THREE.PlaneGeometry(100, 100);
+            const floorMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x336633,
+                roughness: 0.8,
+                metalness: 0.2
+            });
+            const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+            
+            // Create hotdog cart
+            createHotdogCart();
+            
+            // Add some trees for decoration
+            for (let i = 0; i < 20; i++) {
+                const x = Math.random() * 80 - 40;
+                const z = Math.random() * 80 - 40;
+                if (Math.abs(x) > 5 || Math.abs(z) > 5) { // Don't place trees too close to player
+                    createTree(x, 0, z);
+                }
+            }
+        }
+
+        // Create hotdog cart
+        function createHotdogCart() {
+            const cart = new THREE.Group();
+            
+            // Cart body
+            const cartBody = new THREE.Mesh(
+                new THREE.BoxGeometry(2, 1, 3),
+                new THREE.MeshStandardMaterial({ color: 0xdd3333 })
+            );
+            cartBody.position.y = 0.5;
+            cartBody.castShadow = true;
+            cartBody.receiveShadow = true;
+            cart.add(cartBody);
+            
+            // Cart umbrella
+            const umbrella = new THREE.Mesh(
+                new THREE.ConeGeometry(2, 1, 8, 1, true),
+                new THREE.MeshStandardMaterial({ 
+                    color: 0xffdd00,
+                    side: THREE.DoubleSide
+                })
+            );
+            umbrella.position.y = 2;
+            umbrella.castShadow = true;
+            cart.add(umbrella);
+            
+            // Cart sign
+            const sign = new THREE.Mesh(
+                new THREE.BoxGeometry(0.8, 0.5, 0.1),
+                new THREE.MeshStandardMaterial({ color: 0xffcc33 })
+            );
+            sign.position.set(0, 1.5, -0.2);
+            sign.castShadow = true;
+            cart.add(sign);
+            
+            cart.position.z = -3;
+            scene.add(cart);
+        }
+
+        // Create a tree
+        function createTree(x, y, z) {
+            const trunk = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.2, 0.4, 2, 8),
+                new THREE.MeshStandardMaterial({ color: 0x8B4513 })
+            );
+            trunk.position.set(x, y + 1, z);
+            trunk.castShadow = true;
+            trunk.receiveShadow = true;
+            scene.add(trunk);
+            
+            const leaves = new THREE.Mesh(
+                new THREE.SphereGeometry(1, 8, 8),
+                new THREE.MeshStandardMaterial({ color: 0x228B22 })
+            );
+            leaves.position.set(x, y + 2.5, z);
+            leaves.castShadow = true;
+            leaves.receiveShadow = true;
+            scene.add(leaves);
+        }
+        
+        // Create blood splatter effect when zombie is hit
+        function createBloodSplatter(position) {
+            // Create particles for blood effect
+            const particleCount = 15;
+            
+            for (let i = 0; i < particleCount; i++) {
+                const particle = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.05, 4, 4),
+                    new THREE.MeshBasicMaterial({ color: 0xcc0000 })
+                );
+                
+                // Set initial position at hit location
+                particle.position.copy(position);
+                
+                // Add random velocity
+                const velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.3,
+                    Math.random() * 0.2,
+                    (Math.random() - 0.5) * 0.3
+                );
+                
+                // Add to scene and track in an array
+                scene.add(particle);
+                
+                // Remove after animation
+                setTimeout(() => {
+                    scene.remove(particle);
+                }, 500);
+                
+                // Animate particles outward
+                const animateParticle = () => {
+                    particle.position.add(velocity);
+                    velocity.y -= 0.01; // gravity
+                    
+                    if (particle.position.y > 0) {
+                        requestAnimationFrame(animateParticle);
+                    }
+                };
+                
+                animateParticle();
+            }
+        }
+
+        // Set up controls
+        function setupControls() {
+            // Add keyboard controls
+            document.addEventListener('keydown', function(event) {
+                switch(event.code) {
+                    case 'KeyW': moveForward = true; break;
+                    case 'KeyS': moveBackward = true; break;
+                    case 'KeyA': moveLeft = true; break;
+                    case 'KeyD': moveRight = true; break;
+                    case 'Space': shootHotdog(); break;
+                }
+            });
+            
+            document.addEventListener('keyup', function(event) {
+                switch(event.code) {
+                    case 'KeyW': moveForward = false; break;
+                    case 'KeyS': moveBackward = false; break;
+                    case 'KeyA': moveLeft = false; break;
+                    case 'KeyD': moveRight = false; break;
+                }
+            });
+            
+            // Add mouse controls
+            document.addEventListener('click', function() {
+                if (!document.pointerLockElement) {
+                    document.body.requestPointerLock();
+                } else {
+                    shootHotdog();
+                }
+            });
+            
+            // Set up camera rotation with proper Euler angles
+            const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+            
+            document.addEventListener('mousemove', function(event) {
+                if (document.pointerLockElement) {
+                    // Get current rotation
+                    euler.setFromQuaternion(camera.quaternion);
+                    
+                    // Update rotation based on mouse movement
+                    euler.y -= event.movementX * 0.002;
+                    euler.x -= event.movementY * 0.002;
+                    
+                    // Limit vertical rotation
+                    euler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, euler.x));
+                    
+                    // Apply rotation while keeping camera upright
+                    camera.quaternion.setFromEuler(euler);
+                }
+            });
+            
+            // Handle window resize
+            window.addEventListener('resize', function() {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+        // Shoot a hotdog
+        function shootHotdog() {
+            if (!isGameRunning || cooldown > 0 || hotdogs.length >= 10) return;
+            
+            cooldown = 15; // Set cooldown
+            
+            // Create hotdog with bun
+            const hotdogGroup = new THREE.Group();
+            
+            // Hotdog sausage (reddish-brown)
+            const sausageGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.35, 8);
+            const sausageMat = new THREE.MeshStandardMaterial({ color: 0xcc6633 });
+            const sausage = new THREE.Mesh(sausageGeo, sausageMat);
+            sausage.position.y = 0.02; // Slightly above the bun
+            hotdogGroup.add(sausage);
+            
+            // Hotdog bun (light tan)
+            const bunGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.3, 8);
+            bunGeo.scale(1, 0.5, 1); // Flatten the bun a bit
+            const bunMat = new THREE.MeshStandardMaterial({ color: 0xeedd99 });
+            const bun = new THREE.Mesh(bunGeo, bunMat);
+            bun.rotation.z = Math.PI / 2; // Rotate so the opening is up
+            hotdogGroup.add(bun);
+            
+            // Add ketchup squiggles along top
+            for (let i = 0; i < 3; i++) {
+                const ketchupGeo = new THREE.SphereGeometry(0.01, 4, 4);
+                const ketchupMat = new THREE.MeshStandardMaterial({ color: 0xcc0000 });
+                const ketchup = new THREE.Mesh(ketchupGeo, ketchupMat);
+                ketchup.position.set(0, 0.05, -0.1 + i * 0.1);
+                hotdogGroup.add(ketchup);
+            }
+            
+            // Set position
+            hotdogGroup.position.copy(camera.position);
+            
+            // Create throwing animation
+            
+            // First create a "hand" position slightly to the right of and below the camera
+            const handPosition = camera.position.clone();
+            const rightOffset = new THREE.Vector3(0.3, -0.2, 0);
+            rightOffset.applyQuaternion(camera.quaternion);
+            handPosition.add(rightOffset);
+            
+            // Place hotdog at hand position initially
+            hotdogGroup.position.copy(handPosition);
+            
+            // Get throw direction (forward and slightly up)
+            const direction = new THREE.Vector3(0, 0.1, -1);
+            direction.normalize();
+            direction.applyQuaternion(camera.quaternion);
+            
+            // Add random spin to the hotdog
+            const spinAxis = new THREE.Vector3(
+                Math.random() - 0.5,
+                Math.random() - 0.5,
+                Math.random() - 0.5
+            ).normalize();
+            
+            const spinRate = Math.random() * 0.2 + 0.1;
+            
+            // Add to scene
+            scene.add(hotdogGroup);
+            
+            // Add to hotdogs array with velocity, spin info, and throw effect
+            hotdogs.push({
+                mesh: hotdogGroup,
+                velocity: direction.multiplyScalar(0.6),
+                spinAxis: spinAxis,
+                spinRate: spinRate,
+                age: 0,
+                startPosition: handPosition.clone(),
+                throwing: true,
+                throwTime: 0
+            });
+            
+            // Update UI
+            document.getElementById('ammo').textContent = `Hotdogs: ${10 - hotdogs.length}`;
+            
+            // Play throw sound
+            playSound('throw', 1 + Math.random() * 0.2);
+            
+            // Play throw animation (with hand visual)
+            const throwAnimation = () => {
+                // Show throwing hand
+                const hand = document.getElementById('throwingHand');
+                hand.style.opacity = '1';
+                
+                // Animate hand from bottom right to middle right
+                hand.style.transform = 'translate(-50px, -50px)';
+                
+                // Moving camera slightly for physical feedback
+                camera.position.x += 0.03;
+                
+                // Complete throw animation
+                setTimeout(() => {
+                    // Return hand to starting position
+                    hand.style.transform = 'translate(50px, 50px)';
+                    hand.style.opacity = '0';
+                    camera.position.x -= 0.03;
+                }, 150);
+            };
+            
+            throwAnimation();
+        }
+
+        // Spawn a zombie
+        function spawnZombie() {
+            if (!isGameRunning) return;
+            
+            // Random position around player
+            const angle = Math.random() * Math.PI * 2;
+            const distance = 30;
+            const x = Math.sin(angle) * distance;
+            const z = Math.cos(angle) * distance;
+            
+            // Play zombie spawn sound with random pitch (distant)
+            playSound('zombieGrunt', 0.4 + Math.random() * 0.3);
+            
+            // Create zombie
+            const zombie = new THREE.Group();
+            
+            // Body
+            const body = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.3, 0.3, 1.2, 8),
+                new THREE.MeshStandardMaterial({ color: 0x669966 })
+            );
+            body.position.y = 0.9;
+            zombie.add(body);
+            
+            // Head
+            const head = new THREE.Mesh(
+                new THREE.SphereGeometry(0.25, 8, 8),
+                new THREE.MeshStandardMaterial({ color: 0x669966 })
+            );
+            head.position.y = 1.65;
+            zombie.add(head);
+            
+            // Face features
+            
+            // Eyes (sunken red eyes)
+            const leftEye = new THREE.Mesh(
+                new THREE.SphereGeometry(0.05, 8, 8),
+                new THREE.MeshStandardMaterial({ color: 0xcc0000 })
+            );
+            leftEye.position.set(-0.1, 1.7, 0.18);
+            zombie.add(leftEye);
+            
+            const rightEye = new THREE.Mesh(
+                new THREE.SphereGeometry(0.05, 8, 8),
+                new THREE.MeshStandardMaterial({ color: 0xcc0000 })
+            );
+            rightEye.position.set(0.1, 1.7, 0.18);
+            zombie.add(rightEye);
+            
+            // Mouth (grimacing mouth)
+            const mouth = new THREE.Mesh(
+                new THREE.BoxGeometry(0.15, 0.05, 0.05),
+                new THREE.MeshStandardMaterial({ color: 0x000000 })
+            );
+            mouth.position.set(0, 1.55, 0.22);
+            zombie.add(mouth);
+            
+            // Teeth
+            for (let i = 0; i < 3; i++) {
+                const tooth = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.02, 0.04, 0.02),
+                    new THREE.MeshStandardMaterial({ color: 0xffffcc })
+                );
+                tooth.position.set(-0.05 + i * 0.05, 1.53, 0.24);
+                zombie.add(tooth);
+            }
+            
+            // Arms - as pivot groups for animation
+            const armGeo = new THREE.BoxGeometry(0.1, 0.6, 0.1);
+            const armMat = new THREE.MeshStandardMaterial({ color: 0x669966 });
+            
+            // Left arm with pivot
+            const leftArmPivot = new THREE.Group();
+            leftArmPivot.position.set(-0.4, 1.3, 0);
+            zombie.add(leftArmPivot);
+            
+            const leftArm = new THREE.Mesh(armGeo, armMat);
+            leftArm.position.y = -0.3; // Position relative to pivot
+            leftArmPivot.add(leftArm);
+            
+            // Right arm with pivot
+            const rightArmPivot = new THREE.Group();
+            rightArmPivot.position.set(0.4, 1.3, 0);
+            zombie.add(rightArmPivot);
+            
+            const rightArm = new THREE.Mesh(armGeo, armMat);
+            rightArm.position.y = -0.3; // Position relative to pivot
+            rightArmPivot.add(rightArm);
+            
+            // Legs - as pivot groups for animation
+            const legGeo = new THREE.BoxGeometry(0.15, 0.7, 0.15);
+            const legMat = new THREE.MeshStandardMaterial({ color: 0x557755 });
+            
+            // Left leg with pivot
+            const leftLegPivot = new THREE.Group();
+            leftLegPivot.position.set(-0.2, 0.7, 0);
+            zombie.add(leftLegPivot);
+            
+            const leftLeg = new THREE.Mesh(legGeo, legMat);
+            leftLeg.position.y = -0.35; // Position relative to pivot
+            leftLegPivot.add(leftLeg);
+            
+            // Right leg with pivot
+            const rightLegPivot = new THREE.Group();
+            rightLegPivot.position.set(0.2, 0.7, 0);
+            zombie.add(rightLegPivot);
+            
+            const rightLeg = new THREE.Mesh(legGeo, legMat);
+            rightLeg.position.y = -0.35; // Position relative to pivot
+            rightLegPivot.add(rightLeg);
+            
+            // Set position
+            zombie.position.set(x, 0, z);
+            scene.add(zombie);
+            
+            // Add to zombies array with animation references
+            zombies.push({
+                mesh: zombie,
+                health: 100,
+                speed: 0.05,
+                animation: Math.random() * Math.PI,
+                animationSpeed: 0.05 + Math.random() * 0.03,
+                leftArm: leftArmPivot,
+                rightArm: rightArmPivot,
+                leftLeg: leftLegPivot,
+                rightLeg: rightLegPivot
+            });
+        }
+
+        // Animation loop
+        function animate() {
+            if (!isGameRunning) return;
+            
+            requestAnimationFrame(animate);
+            
+            // Update cooldown
+            if (cooldown > 0) cooldown--;
+            
+            // Movement controls - always parallel to ground
+            const speed = 0.15;
+            
+            // Calculate movement direction
+            const moveDirection = new THREE.Vector3(0, 0, 0);
+            let isMoving = false;
+            
+            if (moveForward || moveBackward || moveLeft || moveRight) {
+                // Get forward and right vectors from camera (parallel to ground)
+                const forward = new THREE.Vector3(0, 0, -1);
+                forward.applyQuaternion(camera.quaternion);
+                forward.y = 0; // Keep parallel to ground
+                forward.normalize();
+                
+                const right = new THREE.Vector3(1, 0, 0);
+                right.applyQuaternion(camera.quaternion);
+                right.y = 0; // Keep parallel to ground
+                right.normalize();
+                
+                // Combine movement inputs
+                if (moveForward) moveDirection.add(forward);
+                if (moveBackward) moveDirection.sub(forward);
+                if (moveRight) moveDirection.add(right);
+                if (moveLeft) moveDirection.sub(right);
+                
+                // Normalize and apply movement
+                if (moveDirection.length() > 0) {
+                    moveDirection.normalize();
+                    camera.position.addScaledVector(moveDirection, speed);
+                    isMoving = true;
+                    
+                    // Play footstep sounds occasionally while moving
+                    if (Math.random() < 0.03) {
+                        playSound('walk', 0.8 + Math.random() * 0.4);
+                    }
+                }
+            }
+            
+            // Keep player at fixed height
+            camera.position.y = 1.6;
+            
+            // Limit movement area
+            const dist = Math.sqrt(camera.position.x * camera.position.x + camera.position.z * camera.position.z);
+            if (dist > 40) {
+                camera.position.x *= 39 / dist;
+                camera.position.z *= 39 / dist;
+            }
+            
+            // Update hotdogs
+            for (let i = hotdogs.length - 1; i >= 0; i--) {
+                const hotdog = hotdogs[i];
+                
+                // Move hotdog
+                hotdog.mesh.position.add(hotdog.velocity);
+                
+                // Apply spin animation
+                if (hotdog.spinAxis && hotdog.spinRate) {
+                    // Create rotation matrix for spinning
+                    const rotationMatrix = new THREE.Matrix4();
+                    rotationMatrix.makeRotationAxis(hotdog.spinAxis, hotdog.spinRate);
+                    hotdog.mesh.quaternion.multiplyQuaternions(
+                        new THREE.Quaternion().setFromRotationMatrix(rotationMatrix),
+                        hotdog.mesh.quaternion
+                    );
+                }
+                
+                // Apply gravity effect
+                hotdog.velocity.y -= 0.01; // gravity
+                
+                // Increment age
+                hotdog.age++;
+                
+                // Remove if too old or if it fell below the ground
+                if (hotdog.age > 100 || hotdog.mesh.position.y < -2) {
+                    scene.remove(hotdog.mesh);
+                    hotdogs.splice(i, 1);
+                    document.getElementById('ammo').textContent = `Hotdogs: ${10 - hotdogs.length}`;
+                    continue;
+                }
+                
+                // Check zombie collisions
+                for (let j = zombies.length - 1; j >= 0; j--) {
+                    const zombie = zombies[j];
+                    const distance = hotdog.mesh.position.distanceTo(zombie.mesh.position);
+                    
+                    if (distance < 1.2) {
+                        // Hit zombie
+                        zombie.health -= 50;
+                        
+                        // Create blood splatter effect
+                        createBloodSplatter(hotdog.mesh.position.clone());
+                        
+                        // Play hit sound
+                        playSound('hit', 0.8 + Math.random() * 0.4);
+                        
+                        // Play zombie grunt sound
+                        playSound('zombieGrunt', 0.7 + Math.random() * 0.6);
+                        
+                        // Remove hotdog
+                        scene.remove(hotdog.mesh);
+                        hotdogs.splice(i, 1);
+                        
+                        // Check if zombie is dead
+                        if (zombie.health <= 0) {
+                            // Big blood splatter on death
+                            createBloodSplatter(zombie.mesh.position.clone());
+                            createBloodSplatter(zombie.mesh.position.clone());
+                            
+                            // Play death sound
+                            playSound('zombieDeath', 0.6 + Math.random() * 0.4);
+                            
+                            scene.remove(zombie.mesh);
+                            zombies.splice(j, 1);
+                            score += 100;
+                            document.getElementById('score').textContent = `Score: ${score}`;
+                        }
+                        
+                        document.getElementById('ammo').textContent = `Hotdogs: ${10 - hotdogs.length}`;
+                        break;
+                    }
+                }
+            }
+            
+            // Update zombies
+            for (let i = zombies.length - 1; i >= 0; i--) {
+                const zombie = zombies[i];
+                
+                // Move zombie toward player
+                const dir = new THREE.Vector3();
+                dir.subVectors(camera.position, zombie.mesh.position).normalize();
+                zombie.mesh.position.x += dir.x * zombie.speed;
+                zombie.mesh.position.z += dir.z * zombie.speed;
+                
+                // Face player
+                zombie.mesh.lookAt(camera.position.x, zombie.mesh.position.y, camera.position.z);
+                
+                // Update animation cycle
+                zombie.animation += zombie.animationSpeed;
+                
+                // Shambling walk animation
+                const legAngle = Math.sin(zombie.animation) * 0.5; // leg swing
+                const armAngle = Math.sin(zombie.animation) * 0.25; // arm swing
+                
+                // Animate legs (opposite phases)
+                zombie.leftLeg.rotation.x = legAngle;
+                zombie.rightLeg.rotation.x = -legAngle;
+                
+                // Animate arms (opposite phases from legs)
+                zombie.leftArm.rotation.x = -armAngle;
+                zombie.rightArm.rotation.x = armAngle;
+                
+                // Zombie bob up and down slightly with walk cycle
+                zombie.mesh.position.y = Math.abs(Math.sin(zombie.animation)) * 0.1 + 0.05;
+                
+                // Check if reached player
+                const distance = zombie.mesh.position.distanceTo(camera.position);
+                if (distance < 1.5) {
+                    gameOver();
+                    return;
+                }
+            }
+            
+            // Auto reload hotdogs
+            if (hotdogs.length < 10 && Math.random() < 0.02) {
+                document.getElementById('ammo').textContent = `Hotdogs: ${10 - hotdogs.length + 1}`;
+            }
+            
+            // Render
+            renderer.render(scene, camera);
+        }
+
+        // Game over
+        function gameOver() {
+            isGameRunning = false;
+            document.exitPointerLock();
+            
+            // Play game over sound
+            playSound('gameOver', 0.9);
+            
+            // Show alert with score
+            setTimeout(function() {
+                alert(`Game Over! Your score: ${score}`);
+                resetGame();
+            }, 100);
+        }
+
+        // Reset game
+        function resetGame() {
+            // Clear scene
+            while(scene.children.length > 0) { 
+                scene.remove(scene.children[0]); 
+            }
+            
+            // Remove renderer
+            document.body.removeChild(renderer.domElement);
+            
+            // Reset variables
+            hotdogs = [];
+            zombies = [];
+            score = 0;
+            
+            // Update UI
+            document.getElementById('score').textContent = 'Score: 0';
+            document.getElementById('ammo').textContent = 'Hotdogs: 10';
+            
+            // Show start screen
+            document.getElementById('startScreen').style.display = 'flex';
+        }
+    </script>
+</body>
+</html>
