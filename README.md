@@ -18,7 +18,7 @@ A 3D first-person shooter game where you defend your hotdog cart by shooting hot
 5. Score points by defeating zombies
 
 ## Try It Out
-You can play the game online at: [Your GitHub Pages URL will go here]
+You can play the game online at: [https://crazyrabbitltc.github.io/hotdog-zombie-defense/](https://crazyrabbitltc.github.io/hotdog-zombie-defense/)
 
 ## Technologies Used
 - HTML5
